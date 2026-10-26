@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { MessageCircle, Plus } from 'lucide-react'
 import { AttentionBell } from '@/features/shell/AttentionBell'
 import { MascotLab } from '@/dev/MascotLab'
 import { IconRender } from '@/dev/IconRender'
@@ -9,6 +9,7 @@ import { Overview } from '@/features/overview/Overview'
 import { Vault } from '@/features/items/Vault'
 import { ItemSheet } from '@/features/items/ItemSheet'
 import { AddSecretDialog } from '@/features/items/AddSecretDialog'
+import { AssistantPanel } from '@/features/assistant/AssistantPanel'
 import { Services } from '@/features/services/Services'
 import { ServiceEditor } from '@/features/services/ServiceEditor'
 import { SettingsPage } from '@/features/settings/SettingsPage'
@@ -46,6 +47,7 @@ function Shell() {
   const [adding, setAdding] = useState(false)
   const [addFor, setAddFor] = useState<string | undefined>()
   const [editing, setEditing] = useState<{ service?: Service } | null>(null)
+  const [chatting, setChatting] = useState(false)
 
   useEffect(() => {
     // the desktop backend is loaded lazily so the browser preview never touches Tauri APIs
@@ -127,6 +129,7 @@ function Shell() {
           onAdd={() => setAdding(true)}
           onOpenItem={setOpenItem}
           onSeeAll={() => setView('vault')}
+          onChat={() => setChatting(true)}
         />
         <div className="flex-1 overflow-y-auto px-8 pb-12">
           {view === 'overview' && (
@@ -157,6 +160,18 @@ function Shell() {
       </main>
 
       <ItemSheet itemId={openItem} onClose={() => setOpenItem(null)} />
+      <AssistantPanel
+        open={chatting}
+        onOpenChange={setChatting}
+        onOpenItem={(id) => {
+          setChatting(false)
+          setOpenItem(id)
+        }}
+        onSetup={() => {
+          setChatting(false)
+          setView('settings')
+        }}
+      />
       <AddSecretDialog
         open={adding}
         onOpenChange={(o) => {
@@ -193,6 +208,7 @@ function Header({
   onAdd,
   onOpenItem,
   onSeeAll,
+  onChat,
 }: {
   view: View
   query: string
@@ -200,6 +216,7 @@ function Header({
   onAdd: () => void
   onOpenItem: (id: string) => void
   onSeeAll: () => void
+  onChat: () => void
 }) {
   return (
     <header className="flex items-center gap-3 px-8 pt-7 pb-6">
@@ -213,6 +230,14 @@ function Header({
       </div>
       <div className="ml-auto flex items-center gap-3">
         <ExpandableSearchBar value={query} onChange={onQuery} placeholder="Search tokens, certificates, services" />
+        <button
+          onClick={onChat}
+          aria-label="Assistant"
+          title="Assistant"
+          className="grid size-11 place-items-center rounded-full bg-card text-muted-foreground ring-1 ring-border transition-[color,transform] duration-150 ease-out hover:text-foreground active:scale-95 dark:ring-0"
+        >
+          <MessageCircle className="size-[18px]" />
+        </button>
         <AttentionBell onOpenItem={onOpenItem} onSeeAll={onSeeAll} />
         <button
           onClick={onAdd}

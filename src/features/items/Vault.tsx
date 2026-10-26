@@ -1,15 +1,29 @@
 import { useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import { ServiceIcon } from '@/components/ServiceIcon'
 import { Mascot } from '@/mascot/Mascot'
-import { STATUS_COLOR, STATUS_LABEL, sortByExpiry, statusOf, type Status } from '@/lib/expiry'
+import { countdown, STATUS_COLOR, STATUS_LABEL, sortByExpiry, statusOf, type Status } from '@/lib/expiry'
 import { serviceById, useStore } from '@/lib/store'
-import type { ItemKind } from '@/lib/types'
+import type { Item, ItemKind } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { formatDate, KIND_LABEL, shortLeft, StatusBadge } from './ItemCard'
+import { formatDate, KIND_LABEL } from './ItemCard'
 
-const STATUSES: Status[] = ['expired', 'critical', 'soon', 'ok', 'unknown']
+/** The list is split by urgency, so a row never has to repeat its status. */
+const GROUPS: { title: string; color: string; statuses: Status[] }[] = [
+  { title: 'Needs attention', color: STATUS_COLOR.expired, statuses: ['expired', 'critical'] },
+  { title: 'This month', color: STATUS_COLOR.soon, statuses: ['soon'] },
+  { title: 'Later', color: STATUS_COLOR.ok, statuses: ['ok'] },
+  { title: 'No date', color: STATUS_COLOR.unknown, statuses: ['unknown'] },
+]
 
-/** All secrets, filterable by service, kind and status. */
+const KINDS: { id: ItemKind | null; label: string }[] = [
+  { id: null, label: 'All' },
+  { id: 'token', label: 'Tokens' },
+  { id: 'certificate', label: 'Certificates' },
+  { id: 'login', label: 'Logins' },
+]
+
+/** All secrets, grouped by urgency. Service and status filters arrive from the sidebar and Overview. */
 export function Vault({
   query,
   serviceFilter,
@@ -30,7 +44,6 @@ export function Vault({
 }) {
   const items = useStore((s) => s.items)
   const services = useStore((s) => s.services)
-  const checking = useStore((s) => s.checking)
   const [kind, setKind] = useState<ItemKind | null>(null)
 
   const shown = useMemo(() => {
@@ -45,41 +58,40 @@ export function Vault({
     })
   }, [items, services, query, serviceFilter, kind, status])
 
-  const used = services.filter((s) => items.some((i) => i.serviceId === s.id))
+  const filteredService = serviceFilter ? serviceById(services, serviceFilter) : undefined
 
   return (
     <div>
-
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-sm text-muted-foreground tabular-nums">
-          {shown.length} of {items.length}
+        <div className="flex gap-1 rounded-xl bg-muted p-1">
+          {KINDS.map((k) => (
+            <button
+              key={k.label}
+              onClick={() => setKind(k.id)}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-[background-color,color] duration-150',
+                kind === k.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {k.label}
+            </button>
+          ))}
+        </div>
+        {filteredService && (
+          <FilterPill onClear={() => onServiceFilter(null)}>
+            <ServiceIcon icon={filteredService.icon} color={filteredService.color} size={18} />
+            {filteredService.name}
+          </FilterPill>
+        )}
+        {status && (
+          <FilterPill onClear={() => onStatus(null)}>
+            <span className="size-1.5 rounded-full" style={{ background: STATUS_COLOR[status] }} />
+            {STATUS_LABEL[status]}
+          </FilterPill>
+        )}
+        <span className="ml-auto text-sm text-muted-foreground tabular-nums">
+          {shown.length === items.length ? `${items.length} secrets` : `${shown.length} of ${items.length}`}
         </span>
-        <Chip active={!serviceFilter} onClick={() => onServiceFilter(null)}>
-          All services
-        </Chip>
-        {used.map((s) => (
-          <Chip key={s.id} active={serviceFilter === s.id} onClick={() => onServiceFilter(serviceFilter === s.id ? null : s.id)}>
-            <ServiceIcon icon={s.icon} color={s.color} size={18} />
-            {s.name}
-          </Chip>
-        ))}
-        <span className="mx-1 h-5 w-px bg-border" />
-        <Chip active={kind === 'token'} onClick={() => setKind(kind === 'token' ? null : 'token')}>
-          Tokens
-        </Chip>
-        <Chip active={kind === 'certificate'} onClick={() => setKind(kind === 'certificate' ? null : 'certificate')}>
-          Certificates
-        </Chip>
-        <Chip active={kind === 'login'} onClick={() => setKind(kind === 'login' ? null : 'login')}>
-          Logins
-        </Chip>
-        <span className="mx-1 h-5 w-px bg-border" />
-        {STATUSES.map((st) => (
-          <Chip key={st} active={status === st} onClick={() => onStatus(status === st ? null : st)}>
-            <span className="size-1.5 rounded-full" style={{ background: STATUS_COLOR[st] }} />
-            {STATUS_LABEL[st]}
-          </Chip>
-        ))}
       </div>
 
       {shown.length === 0 ? (
@@ -105,31 +117,23 @@ export function Vault({
           )}
         </div>
       ) : (
-        <div className="-mx-3 flex flex-col">
-          {shown.map((i) => {
-            const s = serviceById(services, i.serviceId)
-            if (!s) return null
+        <div className="flex flex-col gap-8">
+          {GROUPS.map((g) => {
+            const rows = shown.filter((i) => g.statuses.includes(statusOf(i)))
+            if (!rows.length) return null
             return (
-              <button
-                key={i.id}
-                onClick={() => onOpenItem(i.id)}
-                className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors duration-150 hover:bg-card"
-              >
-                <ServiceIcon icon={s.icon} color={s.color} size={40} />
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{i.name}</p>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {s.name} · {KIND_LABEL[i.kind]}
-                    {checking.has(i.id) && ' · checking…'}
-                    {!checking.has(i.id) && i.lastCheck && !i.lastCheck.ok && (
-                      <span className="text-danger"> · rejected by {s.name}</span>
-                    )}
-                  </p>
+              <section key={g.title}>
+                <h2 className="mb-1 flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  <span className="size-1.5 rounded-full" style={{ background: g.color }} />
+                  {g.title}
+                  <span className="font-normal tabular-nums">{rows.length}</span>
+                </h2>
+                <div className="-mx-3 flex flex-col">
+                  {rows.map((i) => (
+                    <Row key={i.id} item={i} onOpen={() => onOpenItem(i.id)} />
+                  ))}
                 </div>
-                <StatusBadge item={i} className="hidden md:inline-flex" />
-                <p className="hidden w-28 text-right text-sm text-muted-foreground sm:block">{formatDate(i.expiresAt)}</p>
-                <span className="w-12 text-right text-sm font-medium text-muted-foreground tabular-nums">{shortLeft(i.expiresAt)}</span>
-              </button>
+              </section>
             )
           })}
         </div>
@@ -138,16 +142,47 @@ export function Vault({
   )
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function Row({ item, onOpen }: { item: Item; onOpen: () => void }) {
+  const service = useStore((s) => serviceById(s.services, item.serviceId))
+  const checking = useStore((s) => s.checking.has(item.id))
+  if (!service) return null
+  const status = statusOf(item)
+  const urgent = status === 'expired' || status === 'critical'
   return (
     <button
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-[background-color,color] duration-150',
-        active ? 'bg-foreground text-background' : 'bg-card text-muted-foreground ring-1 ring-border hover:text-foreground dark:ring-0',
-      )}
+      onClick={onOpen}
+      className="grid grid-cols-[auto_1fr_auto] items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors duration-150 hover:bg-card"
+    >
+      <ServiceIcon icon={service.icon} color={service.color} size={40} />
+      <div className="min-w-0">
+        <p className="truncate font-medium">{item.name}</p>
+        <p className="truncate text-sm text-muted-foreground">
+          {service.name} · {KIND_LABEL[item.kind]}
+          {checking && ' · checking…'}
+          {!checking && item.lastCheck && !item.lastCheck.ok && (
+            <span className="text-danger"> · rejected by {service.name}</span>
+          )}
+        </p>
+      </div>
+      <div className="text-right">
+        <p className="text-sm font-medium tabular-nums" style={urgent ? { color: STATUS_COLOR[status] } : undefined}>
+          {countdown(item.expiresAt)}
+        </p>
+        {item.expiresAt && <p className="text-xs text-muted-foreground">{formatDate(item.expiresAt)}</p>}
+      </div>
+    </button>
+  )
+}
+
+function FilterPill({ onClear, children }: { onClear: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClear}
+      aria-label="Clear filter"
+      className="inline-flex items-center gap-1.5 rounded-full bg-foreground py-1.5 pr-2.5 pl-3 text-sm text-background transition-opacity duration-150 hover:opacity-85"
     >
       {children}
+      <X className="size-3.5 opacity-70" />
     </button>
   )
 }

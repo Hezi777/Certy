@@ -1,5 +1,7 @@
 import { actions } from './store'
-import type { CheckConfig } from './types'
+import { daysLeft, STATUS_LABEL, statusOf } from './expiry'
+import type { ChatMessage } from './backend'
+import type { CheckConfig, Item, Service } from './types'
 
 /**
  * Optional AI helpers. Only service names, descriptions and pasted text the user
@@ -59,4 +61,34 @@ export async function extractExpiry(text: string): Promise<string | null> {
 export async function testConnection(): Promise<string> {
   const reply = await actions.aiChat([{ role: 'user', content: 'Reply with the single word: ready' }])
   return reply.trim()
+}
+
+/**
+ * The assistant sees what the list shows: names, services, kinds, dates and certificate subject/issuer.
+ * Never token values, passwords, cert files, notes or usernames.
+ */
+function inventory(items: Item[], services: Service[]): string {
+  const name = (id: string) => services.find((s) => s.id === id)?.name ?? id
+  const rows = items.map((i) => {
+    const d = daysLeft(i.expiresAt)
+    const when = i.expiresAt ? `${i.expiresAt.slice(0, 10)} (${d} days)` : 'no date'
+    const check = i.lastCheck ? ` | last check ${i.lastCheck.ok ? 'ok' : 'rejected'}` : ''
+    // subject and issuer are public certificate fields, not secrets
+    const cert = i.subject ? ` | subject ${i.subject}${i.issuer ? `, issuer ${i.issuer}` : ''}` : ''
+    return `- [[${i.id}]] ${i.name} | ${name(i.serviceId)} | ${i.kind} | ${when} | ${STATUS_LABEL[statusOf(i)]}${check}${cert}`
+  })
+  const svc = services
+    .filter((s) => s.enabled)
+    .map((s) => `- ${s.name} (${s.baseUrl}) | auto-check: ${s.check.type}`)
+  return `Secrets:\n${rows.join('\n') || '(none)'}\n\nServices:\n${svc.join('\n')}`
+}
+
+export async function askAssistant(history: ChatMessage[], items: Item[], services: Service[]): Promise<string> {
+  const system = `You are Certy's assistant. Certy is a desktop app that tracks when API tokens, certificates and logins expire and reminds the user before they do.
+Today is ${new Date().toISOString().slice(0, 10)}. Answer in a few short sentences or a short list, plain text, no markdown headings or tables.
+When you mention one of the user's secrets, write its reference exactly as given, e.g. [[i3]], instead of its name; the app turns it into a link.
+You only know the metadata below. You cannot see or change token values and must never ask the user to paste one. You cannot change anything in the app; tell the user where to do it instead (add with "Add secret", renew from the secret's panel, set reminders in Settings).
+
+${inventory(items, services)}`
+  return (await actions.aiChat([{ role: 'system', content: system }, ...history])).trim()
 }

@@ -163,7 +163,13 @@ export function AddSecretDialog({
           <div>
             <DialogTitle className="text-base">{step === 'service' ? 'Add a secret' : `New ${service?.name} secret`}</DialogTitle>
             <DialogDescription className="text-sm">
-              {step === 'service' ? 'Which service is it for?' : service?.hint}
+              {step === 'service'
+                ? 'Which service is it for?'
+                : kind === 'certificate'
+                  ? 'Add the certificate file. Certy reads its expiry and keeps the file encrypted on this computer.'
+                  : kind === 'login'
+                    ? 'A username and password you change on a schedule.'
+                    : service?.hint}
             </DialogDescription>
           </div>
         </div>
@@ -230,7 +236,7 @@ export function AddSecretDialog({
                   <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder={kind === 'login' ? 'e.g. Admin account' : 'e.g. CI deploy token'}
+                    placeholder={kind === 'login' ? 'e.g. Admin account' : kind === 'certificate' ? 'e.g. api.example.com TLS' : 'e.g. CI deploy token'}
                   />
                 </Field>
 
@@ -286,6 +292,7 @@ export function AddSecretDialog({
                   manualDate={manualDate}
                   onManualDate={setManualDate}
                   aiEnabled={ai.enabled && !!ai.model}
+                  waitingFor={kind === 'certificate' && !file ? 'file' : kind === 'token' && !token.trim() ? 'token' : null}
                 />
                 )}
               </div>
@@ -386,6 +393,7 @@ function ExpiryField({
   manualDate,
   onManualDate,
   aiEnabled,
+  waitingFor,
 }: {
   detected: { at: string; source: ExpirySource } | null
   cert: CertInfo | null
@@ -394,6 +402,8 @@ function ExpiryField({
   manualDate?: Date
   onManualDate: (d: Date | undefined) => void
   aiEnabled: boolean
+  /** Nothing to read a date from yet: say where it will come from instead of "not found". */
+  waitingFor: 'file' | 'token' | null
 }) {
   const [aiText, setAiText] = useState('')
   const [aiBusy, setAiBusy] = useState(false)
@@ -405,7 +415,11 @@ function ExpiryField({
       ? `${detected.source === 'jwt' ? 'Read from the token' : 'Read from the certificate'}: ${formatDate(detected.at)}`
       : apiReadsExpiry
         ? `${serviceName} reports the expiry when Certy checks the token.`
-        : 'No date found. Pick one.'
+        : waitingFor === 'file'
+          ? 'Read from the file once you add it.'
+          : waitingFor === 'token'
+            ? 'Read from the token if it carries one, or pick a date.'
+            : 'No date found. Pick one.'
 
   async function findWithAi() {
     setAiBusy(true)
