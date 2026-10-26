@@ -5,7 +5,7 @@ import { STATUS_COLOR, STATUS_LABEL, sortByExpiry, statusOf, type Status } from 
 import { serviceById, useStore } from '@/lib/store'
 import type { ItemKind } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { formatDate, shortLeft, StatusBadge } from './ItemCard'
+import { formatDate, KIND_LABEL, shortLeft, StatusBadge } from './ItemCard'
 
 const STATUSES: Status[] = ['expired', 'critical', 'soon', 'ok', 'unknown']
 
@@ -40,7 +40,7 @@ export function Vault({
       if (serviceFilter && i.serviceId !== serviceFilter) return false
       if (kind && i.kind !== kind) return false
       if (status && statusOf(i) !== status) return false
-      if (q && !`${i.name} ${s?.name} ${i.subject ?? ''}`.toLowerCase().includes(q)) return false
+      if (q && !`${i.name} ${s?.name} ${i.subject ?? ''} ${i.username ?? ''}`.toLowerCase().includes(q)) return false
       return true
     })
   }, [items, services, query, serviceFilter, kind, status])
@@ -69,6 +69,9 @@ export function Vault({
         </Chip>
         <Chip active={kind === 'certificate'} onClick={() => setKind(kind === 'certificate' ? null : 'certificate')}>
           Certificates
+        </Chip>
+        <Chip active={kind === 'login'} onClick={() => setKind(kind === 'login' ? null : 'login')}>
+          Logins
         </Chip>
         <span className="mx-1 h-5 w-px bg-border" />
         {STATUSES.map((st) => (
@@ -116,7 +119,7 @@ export function Vault({
                 <div className="min-w-0">
                   <p className="truncate font-medium">{i.name}</p>
                   <p className="truncate text-sm text-muted-foreground">
-                    {s.name} · {i.kind === 'certificate' ? 'Certificate' : 'Token'}
+                    {s.name} · {KIND_LABEL[i.kind]}
                     {checking.has(i.id) && ' · checking…'}
                     {!checking.has(i.id) && i.lastCheck && !i.lastCheck.ok && (
                       <span className="text-danger"> · rejected by {s.name}</span>

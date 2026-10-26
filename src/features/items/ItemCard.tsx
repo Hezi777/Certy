@@ -1,7 +1,13 @@
 import { IconGlyph } from '@/components/ServiceIcon'
 import { countdown, daysLeft, STATUS_COLOR, STATUS_LABEL, statusOf } from '@/lib/expiry'
-import type { Item, Service } from '@/lib/types'
+import type { Item, ItemKind, Service } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+export const KIND_LABEL: Record<ItemKind, string> = {
+  token: 'API token',
+  certificate: 'Certificate',
+  login: 'Login',
+}
 
 export function StatusBadge({ item, className }: { item: Item; className?: string }) {
   const status = statusOf(item)

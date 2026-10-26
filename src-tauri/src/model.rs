@@ -79,12 +79,19 @@ pub struct AiSettings {
     pub rest: Map<String, Value>,
 }
 
+fn yes() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub reminders: Vec<i64>,
     pub check_every_hours: u64,
     pub autostart: bool,
+    /// Ask for Windows Hello / Windows sign-in before revealing or exporting a secret.
+    #[serde(default = "yes")]
+    pub require_sign_in: bool,
     pub ai: AiSettings,
     #[serde(flatten)]
     pub rest: Map<String, Value>,

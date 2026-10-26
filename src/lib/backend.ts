@@ -42,7 +42,12 @@ export interface Backend {
   aiChat(messages: ChatMessage[]): Promise<string>
   /** Fires a test desktop notification. */
   testNotification(): Promise<void>
+  /** Which sign-in prompt guards secrets on this machine. */
+  authMethod(): Promise<AuthMethod>
 }
+
+/** 'hello' = Windows Hello (PIN/fingerprint/face), 'windows' = password or smart card, 'none' = not on Windows. */
+export type AuthMethod = 'hello' | 'windows' | 'none'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -55,6 +60,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autostart: true,
   theme: 'system',
   onboarded: false,
+  requireSignIn: true,
   ai: { enabled: false, baseUrl: '', model: '', hasKey: false },
 }
 
@@ -102,6 +108,8 @@ function demo(): Snapshot {
         expiresAt: iso(211), source: 'tls', subject: 'CN=*.corp.local', issuer: 'CN=Internal CA' }),
       item({ id: 'i8', serviceId: 'trino', name: 'BI service account', expiresAt: iso(36), source: 'jwt' }),
       item({ id: 'i9', serviceId: 'azuredevops', name: 'Artifacts feed PAT', expiresAt: iso(9) }),
+      item({ id: 'i10', serviceId: 'gitlab', name: 'Admin account', kind: 'login', username: 'admin@corp.local',
+        url: 'https://gitlab.com', rotateDays: 90, expiresAt: iso(47) }),
     ],
     settings: { ...DEFAULT_SETTINGS, onboarded: true },
   }
@@ -194,6 +202,9 @@ export const browserBackend: Backend = {
     if (!res.ok) throw new Error(`Model endpoint answered ${res.status}`)
     const json = await res.json()
     return json.choices?.[0]?.message?.content ?? ''
+  },
+  async authMethod() {
+    return 'none' as const
   },
   async testNotification() {
     if ('Notification' in window && (await Notification.requestPermission()) === 'granted') {

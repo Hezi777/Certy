@@ -29,4 +29,5 @@ export const tauriBackend: Backend = {
   aiModels: (baseUrl, key) => invoke('ai_models', { baseUrl, key: key ?? null }),
   aiChat: (messages) => invoke('ai_chat', { messages }),
   testNotification: () => invoke('test_notification'),
+  authMethod: () => invoke('auth_method'),
 }

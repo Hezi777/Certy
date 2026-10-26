@@ -97,13 +97,24 @@ fn remind(app: &AppHandle, defaults: &[i64]) -> anyhow::Result<()> {
 }
 
 fn body(item: &Item, days: i64) -> String {
-    let what = if item.kind == "certificate" { "Certificate" } else { "Token" };
+    let what = match item.kind.as_str() {
+        "certificate" => "Certificate",
+        "login" => "Password",
+        _ => "Token",
+    };
     let date = item
         .expires_at
         .as_deref()
         .and_then(|d| DateTime::parse_from_rfc3339(d).ok())
         .map(|d| d.format("%b %-d").to_string())
         .unwrap_or_default();
+    // a login's date is a rotation reminder, not a hard expiry
+    if item.kind == "login" {
+        return match days {
+            d if d <= 0 => format!("{what} is due for a change."),
+            d => format!("{what} should be changed within {d} day{} ({date}).", if d == 1 { "" } else { "s" }),
+        };
+    }
     match days {
         d if d < 0 => format!("{what} expired {} day{} ago.", -d, if d == -1 { "" } else { "s" }),
         0 => format!("{what} expires today."),

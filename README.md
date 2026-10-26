@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-  A Windows desktop app that tracks when your API tokens and certificates expire and reminds you with a desktop notification — local-only and encrypted.
+  A Windows desktop app that tracks when your API tokens, certificates and passwords expire and reminds you with a desktop notification — local-only and encrypted.
 </p>
 
 <p align="center">
@@ -55,6 +55,8 @@ sent service names and descriptions, never secrets.
 |---|---|
 | Tokens | Paste a token; JWT expiry is read automatically, GitLab tokens are looked up via the API, others take a date |
 | Certificates | Drop a PEM/CRT/CER/DER/PFX file; the earliest `notAfter` in the chain is used. Unreadable files are kept encrypted and can be exported |
+| Logins | Username, password (with a generator) and sign-in URL per service, with an optional "change every N days" reminder |
+| Sign-in lock | Revealing, copying or exporting a secret asks for Windows Hello, or the Windows password / smart card when Hello isn't set up; unlocked for 5 minutes |
 | Live checks | Per-service validity ping, API expiry lookup, or TLS handshake — run on a schedule and on demand |
 | Reminders | Windows notifications at chosen thresholds, each fired once per expiry date; per-item overrides |
 | Services | 5 official logos built in; custom services with 3,400+ brand icons, emoji or generic glyphs and any color |
@@ -148,6 +150,7 @@ src-tauri/src/
   checks.rs        HTTP ping / API expiry / TLS
   certs.rs         PEM, DER, PKCS#12
   crypto.rs        AES-GCM with the key in Credential Manager
+  lock.rs          Windows Hello / Windows Security prompt before secrets are shown
   db.rs            SQLite
 ```
 
@@ -158,8 +161,8 @@ src-tauri/src/
 Working: everything in the feature table, on macOS in development. Not yet verified: the Windows build itself (the
 first CI run is pending), notifications as they appear on Windows, and live checks against real Azure DevOps and
 DagsHub instances. As far as I can tell neither of those exposes a token's own expiry, so they use a manual date plus a
-validity ping. In progress: login items (username/password) with a Windows Hello / Windows Security prompt before any
-secret is revealed.
+validity ping. The sign-in prompt (`src-tauri/src/lock.rs`) is type-checked against Windows but not yet tried on a
+real machine, including with a smart card.
 
 Brand logos belong to their owners and are bundled for identification in a private tool.
 

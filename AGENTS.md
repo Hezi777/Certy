@@ -21,8 +21,11 @@ Mostly used on Windows 10; developed on macOS.
 
 ## Rules that aren't visible in the code
 
-- Secrets (token values, cert files, AI key) never reach the UI unencrypted except through
-  `reveal_secret`/`export_file`, and are never sent to the AI endpoint.
+- Secrets (token values, passwords, cert files, AI key) never reach the UI unencrypted except
+  through `reveal_secret`/`export_file`, which go through `lock.rs` (Windows Hello, else the
+  Windows password/smart-card prompt). Never send secrets to the AI endpoint.
+- `lock.rs` only compiles its real code on Windows; check it with
+  `cargo check --target x86_64-pc-windows-msvc` in a crate without C dependencies, or via CI.
 - Rust stores items/services/settings as JSON documents with `#[serde(flatten)] rest`, so
   new UI fields need no migration. Only add typed Rust fields Rust actually reads.
 - `daysLeft`/`dueThreshold` in `src/lib/expiry.ts` and `days_left`/`due_threshold` in

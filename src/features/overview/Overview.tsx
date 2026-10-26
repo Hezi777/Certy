@@ -9,7 +9,7 @@ import { daysLeft, sortByExpiry, STATUS_COLOR, statusOf, type Status } from '@/l
 import { serviceById, useStore } from '@/lib/store'
 import type { Item } from '@/lib/types'
 import { rise, useCountUp, useIntro } from '@/lib/intro'
-import { formatDate, ItemCard, shortLeft, StatusBadge } from '@/features/items/ItemCard'
+import { formatDate, ItemCard, KIND_LABEL, shortLeft, StatusBadge } from '@/features/items/ItemCard'
 
 export function Overview({
   onOpenItem,
@@ -314,7 +314,7 @@ function Timeline({ items, intro, onOpen }: { items: Item[]; intro: boolean; onO
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{i.name}</p>
               <p className="truncate text-sm text-muted-foreground">
-                {s.name} · {i.kind === 'certificate' ? 'Certificate' : 'Token'}
+                {s.name} · {KIND_LABEL[i.kind]}
               </p>
             </div>
             <p className="hidden text-sm text-muted-foreground sm:block">{formatDate(i.expiresAt)}</p>

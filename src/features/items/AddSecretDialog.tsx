@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowLeft, CalendarDays, FileUp, KeyRound, Loader2, Plus, ShieldCheck, Sparkles } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Dices, Eye, EyeOff, FileUp, KeyRound, Loader2, Plus, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Calendar } from '@/components/ui/calendar'
@@ -46,6 +46,11 @@ export function AddSecretDialog({
   const [certError, setCertError] = useState<string | null>(null)
   const [manualDate, setManualDate] = useState<Date | undefined>()
   const [saving, setSaving] = useState(false)
+  // login items: the password lives in `token`, these describe the account
+  const [username, setUsername] = useState('')
+  const [url, setUrl] = useState('')
+  const [rotateDays, setRotateDays] = useState<number | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -59,6 +64,10 @@ export function AddSecretDialog({
     setCert(null)
     setCertError(null)
     setManualDate(undefined)
+    setUsername('')
+    setUrl('')
+    setRotateDays(null)
+    setShowPassword(false)
   }, [open, presetServiceId])
 
   const service = services.find((s) => s.id === serviceId)
@@ -72,7 +81,8 @@ export function AddSecretDialog({
       : kind === 'certificate' && cert
         ? { at: cert.notAfter, source: 'cert-file' }
         : null
-  const expiresAt = manualDate?.toISOString() ?? detected?.at ?? null
+  const rotationDate = kind === 'login' && rotateDays ? new Date(Date.now() + rotateDays * 86_400_000).toISOString() : null
+  const expiresAt = rotationDate ?? manualDate?.toISOString() ?? detected?.at ?? null
 
   async function readFile(f: File, pw?: string) {
     const bytes = Array.from(new Uint8Array(await f.arrayBuffer()))
@@ -96,16 +106,19 @@ export function AddSecretDialog({
     setSaving(true)
     try {
       const secret: Secret | undefined =
-        kind === 'token' ? (token ? { token: token.trim() } : undefined) : file ? { file } : undefined
+        kind === 'certificate' ? (file ? { file } : undefined) : token ? { token: kind === 'login' ? token : token.trim() } : undefined
       const item: Item = {
         id: crypto.randomUUID(),
         serviceId: service.id,
-        name: name.trim() || (kind === 'token' ? `${service.name} token` : `${service.name} certificate`),
+        name: name.trim() || (kind === 'login' ? username.trim() || `${service.name} account` : `${service.name} ${kind}`),
         kind,
         expiresAt,
         source: manualDate ? 'manual' : (detected?.source ?? (apiReadsExpiry ? 'api' : 'manual')),
         hasSecret: !!secret,
-        fileName: file?.name,
+        fileName: kind === 'certificate' ? file?.name : undefined,
+        ...(kind === 'login'
+          ? { username: username.trim() || undefined, url: url.trim() || undefined, rotateDays: rotateDays ?? undefined }
+          : {}),
         subject: cert?.subject,
         issuer: cert?.issuer,
         createdAt: new Date().toISOString(),
@@ -113,17 +126,25 @@ export function AddSecretDialog({
       await actions.saveItem(item, secret)
       onOpenChange(false)
       toast.success(`${item.name} added`, {
-        description: expiresAt ? `Expires ${formatDate(expiresAt)}` : 'Checking the service for the expiry date…',
+        description: expiresAt
+          ? `${kind === 'login' ? 'Rotate by' : 'Expires'} ${formatDate(expiresAt)}`
+          : kind === 'login'
+            ? 'Saved, no rotation reminder'
+            : 'Checking the service for the expiry date…',
         icon: <Mascot state="burst" size={28} paper="var(--popover)" />,
       })
       // services that can, refresh validity/expiry right away
-      if (service.check.type !== 'none' && secret) actions.check(item.id)
+      if (service.check.type !== 'none' && secret && kind === 'token') actions.check(item.id)
     } finally {
       setSaving(false)
     }
   }
 
-  const canSave = !!service && (kind === 'token' ? token.trim().length > 0 : !!file) && (!!expiresAt || apiReadsExpiry)
+  const canSave =
+    !!service &&
+    (kind === 'login'
+      ? !!(username.trim() || token)
+      : (kind === 'token' ? token.trim().length > 0 : !!file) && (!!expiresAt || apiReadsExpiry))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -183,8 +204,8 @@ export function AddSecretDialog({
               </div>
             ) : (
               <div className="grid gap-5">
-                <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
-                  {(['token', 'certificate'] as const).map((k) => (
+                <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
+                  {(['token', 'certificate', 'login'] as const).map((k) => (
                     <button
                       key={k}
                       onClick={() => setKind(k)}
@@ -193,17 +214,49 @@ export function AddSecretDialog({
                         kind === k ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground',
                       )}
                     >
-                      {k === 'token' ? <KeyRound className="size-4" /> : <ShieldCheck className="size-4" />}
-                      {k === 'token' ? 'API token' : 'Certificate'}
+                      {k === 'token' ? (
+                        <KeyRound className="size-4" />
+                      ) : k === 'certificate' ? (
+                        <ShieldCheck className="size-4" />
+                      ) : (
+                        <UserRound className="size-4" />
+                      )}
+                      {k === 'token' ? 'API token' : k === 'certificate' ? 'Certificate' : 'Login'}
                     </button>
                   ))}
                 </div>
 
                 <Field label="Name">
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. CI deploy token" />
+                  <Input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={kind === 'login' ? 'e.g. Admin account' : 'e.g. CI deploy token'}
+                  />
                 </Field>
 
-                {kind === 'token' ? (
+                {kind === 'login' ? (
+                  <LoginFields
+                    username={username}
+                    onUsername={setUsername}
+                    password={token}
+                    onPassword={setToken}
+                    show={showPassword}
+                    onShow={setShowPassword}
+                    url={url}
+                    onUrl={setUrl}
+                    urlPlaceholder={service?.baseUrl}
+                    rotateDays={rotateDays}
+                    onRotateDays={(d) => {
+                      setRotateDays(d)
+                      if (d) setManualDate(undefined)
+                    }}
+                    manualDate={manualDate}
+                    onManualDate={(d) => {
+                      setManualDate(d)
+                      if (d) setRotateDays(null)
+                    }}
+                  />
+                ) : kind === 'token' ? (
                   <Field label="Token">
                     <Textarea
                       value={token}
@@ -224,6 +277,7 @@ export function AddSecretDialog({
                   />
                 )}
 
+                {kind !== 'login' && (
                 <ExpiryField
                   detected={detected}
                   cert={cert}
@@ -233,6 +287,7 @@ export function AddSecretDialog({
                   onManualDate={setManualDate}
                   aiEnabled={ai.enabled && !!ai.model}
                 />
+                )}
               </div>
             )}
           </motion.div>
@@ -415,11 +470,142 @@ function ExpiryField({
   )
 }
 
+/** A <label> wrapper, so clicking the caption focuses the field and screen readers pair them. */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid gap-1.5">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+    <label className="grid gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       {children}
-    </div>
+    </label>
+  )
+}
+
+const ROTATIONS = [30, 60, 90, 180]
+
+/** A strong random password: 20 chars from a set that survives most password rules. */
+function generatePassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_=+'
+  const bytes = crypto.getRandomValues(new Uint32Array(20))
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('')
+}
+
+function LoginFields({
+  username,
+  onUsername,
+  password,
+  onPassword,
+  show,
+  onShow,
+  url,
+  onUrl,
+  urlPlaceholder,
+  rotateDays,
+  onRotateDays,
+  manualDate,
+  onManualDate,
+}: {
+  username: string
+  onUsername: (v: string) => void
+  password: string
+  onPassword: (v: string) => void
+  show: boolean
+  onShow: (v: boolean) => void
+  url: string
+  onUrl: (v: string) => void
+  urlPlaceholder?: string
+  rotateDays: number | null
+  onRotateDays: (d: number | null) => void
+  manualDate?: Date
+  onManualDate: (d: Date | undefined) => void
+}) {
+  return (
+    <>
+      <Field label="Username or email">
+        <Input value={username} onChange={(e) => onUsername(e.target.value)} autoComplete="off" spellCheck={false} />
+      </Field>
+      <Field label="Password">
+        <div className="flex gap-2">
+          <Input
+            type={show ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => onPassword(e.target.value)}
+            autoComplete="new-password"
+            spellCheck={false}
+            className="font-mono"
+          />
+          <button
+            type="button"
+            onClick={() => onShow(!show)}
+            aria-label={show ? 'Hide password' : 'Show password'}
+            className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground hover:text-foreground"
+          >
+            {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onPassword(generatePassword())
+              onShow(true)
+            }}
+            title="Generate a strong password"
+            aria-label="Generate a strong password"
+            className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground hover:text-foreground"
+          >
+            <Dices className="size-4" />
+          </button>
+        </div>
+      </Field>
+      <Field label="Sign-in URL (optional)">
+        <Input value={url} onChange={(e) => onUrl(e.target.value)} placeholder={urlPlaceholder} spellCheck={false} />
+      </Field>
+      <div className="grid gap-2">
+        <Label className="text-xs text-muted-foreground">Remind me to change it</Label>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill active={!rotateDays && !manualDate} onClick={() => {
+            onRotateDays(null)
+            onManualDate(undefined)
+          }}>
+            Never
+          </Pill>
+          {ROTATIONS.map((d) => (
+            <Pill key={d} active={rotateDays === d} onClick={() => onRotateDays(d)}>
+              Every {d} days
+            </Pill>
+          ))}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition-colors',
+                  manualDate ? 'bg-primary text-primary-foreground ring-primary' : 'text-muted-foreground ring-border',
+                )}
+              >
+                <CalendarDays className="size-3.5" />
+                {manualDate ? formatDate(manualDate.toISOString()) : 'On a date'}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-auto p-0">
+              <Calendar mode="single" selected={manualDate} onSelect={onManualDate} captionLayout="dropdown" endMonth={new Date(2040, 0)} />
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition-[background-color,color] duration-150',
+        active ? 'bg-primary text-primary-foreground ring-primary' : 'text-muted-foreground ring-border',
+      )}
+    >
+      {children}
+    </button>
   )
 }

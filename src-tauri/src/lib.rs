@@ -4,6 +4,7 @@ mod checks;
 mod commands;
 mod crypto;
 mod db;
+mod lock;
 mod model;
 mod scheduler;
 
@@ -82,7 +83,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db = db::Db::open(&dir.join("certy.db"))?;
             let vault = crypto::Vault::open()?;
-            app.manage(AppState { db: Mutex::new(db), vault });
+            app.manage(AppState { db: Mutex::new(db), vault, unlocked_until: Mutex::new(None) });
 
             tray(app)?;
             // started by autostart: stay in the tray
@@ -116,6 +117,7 @@ pub fn run() {
             commands::ai_models,
             commands::ai_chat,
             commands::test_notification,
+            commands::auth_method,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Certy");

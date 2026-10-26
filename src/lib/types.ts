@@ -31,7 +31,7 @@ export interface Service {
   hint?: string
 }
 
-export type ItemKind = 'token' | 'certificate'
+export type ItemKind = 'token' | 'certificate' | 'login'
 
 /** Where an item's expiry date came from. */
 export type ExpirySource = 'manual' | 'jwt' | 'cert-file' | 'tls' | 'api'
@@ -53,6 +53,11 @@ export interface Item {
   /** A token value or cert file is stored (encrypted) for this item. */
   hasSecret: boolean
   fileName?: string
+  /** Login items: the account name and where it's used. The password is the stored secret. */
+  username?: string
+  url?: string
+  /** Login items: rotate every N days; expiresAt is then the next rotation date. */
+  rotateDays?: number
   /** Certificate subject / issuer, when parsed. */
   subject?: string
   issuer?: string
@@ -83,5 +88,7 @@ export interface Settings {
   autostart: boolean
   theme: 'system' | 'light' | 'dark'
   onboarded: boolean
+  /** Windows Hello / Windows sign-in before a secret is revealed, copied or exported. */
+  requireSignIn: boolean
   ai: AiSettings
 }

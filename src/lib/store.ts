@@ -90,6 +90,7 @@ export const actions = {
   aiModels: (baseUrl: string, key?: string) => backend.aiModels(baseUrl, key),
   aiChat: (messages: ChatMessage[]) => backend.aiChat(messages),
   testNotification: () => backend.testNotification(),
+  authMethod: () => backend.authMethod(),
 }
 
 export const serviceById = (services: Service[], id: string) => services.find((s) => s.id === id)

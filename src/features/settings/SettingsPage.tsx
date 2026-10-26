@@ -5,16 +5,28 @@ import { Switch } from '@/components/ui/switch'
 import { actions, useStore } from '@/lib/store'
 import { setThemePref } from '@/lib/theme'
 import type { Settings } from '@/lib/types'
+import type { AuthMethod } from '@/lib/backend'
 import { cn } from '@/lib/utils'
 import { AiSettingsForm } from './AiSettingsForm'
 
 const REMINDER_CHOICES = [60, 30, 14, 7, 3, 1, 0]
+
+/** What this PC will ask for, detected by the backend. */
+const AUTH_HINT: Record<AuthMethod, string> = {
+  hello: 'Windows Hello: PIN, fingerprint or face. Stays unlocked for 5 minutes.',
+  windows: 'Your Windows password or smart card. Stays unlocked for 5 minutes.',
+  none: 'The prompt appears in the Windows app; this preview has none.',
+}
 
 export function SettingsPage() {
   const saved = useStore((s) => s.settings)
   const [draft, setDraft] = useState<Settings>(saved)
   const [aiKey, setAiKey] = useState('')
   useEffect(() => setDraft(saved), [saved])
+  const [auth, setAuth] = useState<AuthMethod | null>(null)
+  useEffect(() => {
+    actions.authMethod().then(setAuth)
+  }, [])
 
   // everything but AI saves as you go; AI waits for the explicit button since the key is sensitive
   const commit = (next: Settings) => {
@@ -43,7 +55,7 @@ export function SettingsPage() {
                   on ? 'bg-primary text-primary-foreground ring-primary' : 'text-muted-foreground ring-border',
                 )}
               >
-                {d === 0 ? 'On the day' : `${d} days before`}
+                {d === 0 ? 'On the day' : `${d} day${d === 1 ? '' : 's'} before`}
               </button>
             )
           })}
@@ -55,6 +67,12 @@ export function SettingsPage() {
           >
             <Bell className="size-3.5" /> Send
           </button>
+        </Row>
+      </Group>
+
+      <Group title="Security">
+        <Row label="Sign in to see secrets" hint={AUTH_HINT[auth ?? 'none']}>
+          <Switch checked={draft.requireSignIn} onCheckedChange={(requireSignIn) => commit({ ...draft, requireSignIn })} />
         </Row>
       </Group>
 

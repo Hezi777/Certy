@@ -13,7 +13,7 @@ import { ServiceIcon } from '@/components/ServiceIcon'
 import { countdown, daysLeft, STATUS_COLOR, statusOf } from '@/lib/expiry'
 import { actions, serviceById, useStore } from '@/lib/store'
 import type { ExpirySource } from '@/lib/types'
-import { formatDate, StatusBadge } from './ItemCard'
+import { formatDate, KIND_LABEL, StatusBadge } from './ItemCard'
 
 const SOURCE_LABEL: Record<ExpirySource, string> = {
   manual: 'Set by hand',
@@ -45,8 +45,19 @@ export function ItemSheet({ itemId, onClose }: { itemId: string | null; onClose:
   const d = daysLeft(item.expiresAt)
   const status = statusOf(item)
 
+  // reveal/copy go through the Windows sign-in prompt; a cancelled prompt rejects
+  async function reveal(): Promise<string | null> {
+    try {
+      return await actions.revealSecret(item!.id)
+    } catch (e) {
+      toast.error(String(e))
+      return null
+    }
+  }
+
   async function copy() {
-    const value = secret ?? (await actions.revealSecret(item!.id))
+    const value = secret ?? (await reveal())
+    if (value === null) return
     await navigator.clipboard.writeText(value)
     setCopied(true)
     setTimeout(() => setCopied(false), 1400)
@@ -60,7 +71,7 @@ export function ItemSheet({ itemId, onClose }: { itemId: string | null; onClose:
           <div className="min-w-0 flex-1">
             <SheetTitle className="truncate">{item.name}</SheetTitle>
             <SheetDescription>
-              {service.name} · {item.kind === 'certificate' ? 'Certificate' : 'API token'}
+              {service.name} · {KIND_LABEL[item.kind]}
             </SheetDescription>
           </div>
           <IconButton label={editing ? 'Done editing' : 'Edit'} onClick={() => setEditing((e) => !e)}>
@@ -82,7 +93,8 @@ export function ItemSheet({ itemId, onClose }: { itemId: string | null; onClose:
               <StatusBadge item={item} className="w-fit" />
               <p className="text-lg font-semibold">{countdown(item.expiresAt)}</p>
               <p className="text-sm text-muted-foreground">
-                {formatDate(item.expiresAt)} · {SOURCE_LABEL[item.source]}
+                {formatDate(item.expiresAt)} ·{' '}
+                {item.rotateDays ? `Change every ${item.rotateDays} days` : SOURCE_LABEL[item.source]}
               </p>
             </div>
           </div>
@@ -90,7 +102,7 @@ export function ItemSheet({ itemId, onClose }: { itemId: string | null; onClose:
           {editing && <EditForm itemId={item.id} onDone={() => setEditing(false)} />}
 
           <div className="grid grid-cols-3 gap-2">
-            <ActionButton onClick={() => actions.check(item.id)} disabled={checking || service.check.type === 'none'}>
+            <ActionButton onClick={() => actions.check(item.id)} disabled={checking || service.check.type === 'none' || item.kind === 'login'}>
               {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
               Check now
             </ActionButton>
@@ -133,15 +145,22 @@ export function ItemSheet({ itemId, onClose }: { itemId: string | null; onClose:
             </Section>
           )}
 
-          {item.kind === 'token' && item.hasSecret && (
-            <Section title="Token">
+          {item.kind === 'login' && (item.username || item.url) && (
+            <Section title="Account">
+              {item.username && <CopyRow label="Username" value={item.username} />}
+              {item.url && <CopyRow label="URL" value={item.url} />}
+            </Section>
+          )}
+
+          {item.kind !== 'certificate' && item.hasSecret && (
+            <Section title={item.kind === 'login' ? 'Password' : 'Token'}>
               <div className="flex items-center gap-2">
                 <code className="flex-1 truncate rounded-lg bg-muted px-3 py-2 font-mono text-xs">
                   {secret ?? '••••••••••••••••••••••••'}
                 </code>
                 <IconButton
                   label={secret ? 'Hide' : 'Reveal'}
-                  onClick={async () => setSecret(secret ? null : await actions.revealSecret(item.id))}
+                  onClick={async () => setSecret(secret ? null : await reveal())}
                 >
                   {secret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </IconButton>
@@ -160,8 +179,12 @@ export function ItemSheet({ itemId, onClose }: { itemId: string | null; onClose:
                 <ActionButton
                   className="mt-3 w-full"
                   onClick={async () => {
-                    await actions.exportFile(item.id)
-                    toast.success('Certificate exported')
+                    try {
+                      await actions.exportFile(item.id)
+                      toast.success('Certificate exported')
+                    } catch (e) {
+                      toast.error(String(e))
+                    }
                   }}
                 >
                   <Download className="size-4" /> Export {item.fileName ?? 'file'}
@@ -367,26 +390,56 @@ function ReplaceSecret({ itemId, onDone }: { itemId: string; onDone: () => void 
     )
   }
 
-  const jwt = jwtExpiry(token)
+  const login = item.kind === 'login'
+  const jwt = login ? null : jwtExpiry(token)
+  // a changed password restarts its rotation clock
+  const rotated = login && item.rotateDays ? new Date(Date.now() + item.rotateDays * 86_400_000).toISOString() : null
   return (
     <div className="grid gap-2 rounded-2xl bg-muted/50 p-4">
       <Textarea
         value={token}
         onChange={(e) => setToken(e.target.value)}
-        placeholder="Paste the new token"
+        placeholder={login ? 'The new password' : 'Paste the new token'}
         className="min-h-20 font-mono text-xs break-all"
         spellCheck={false}
       />
       {jwt && <p className="text-xs text-muted-foreground">Expiry read from the token: {formatDate(jwt)}</p>}
       <button
         onClick={() =>
-          finish({ ...item, ...(jwt ? { expiresAt: jwt, source: 'jwt' as const } : {}) }, { token: token.trim() })
+          finish(
+            {
+              ...item,
+              ...(jwt ? { expiresAt: jwt, source: 'jwt' as const } : {}),
+              ...(rotated ? { expiresAt: rotated, source: 'manual' as const } : {}),
+            },
+            { token: login ? token : token.trim() },
+          )
         }
         disabled={!token.trim()}
         className="rounded-xl bg-primary py-2 text-sm font-semibold text-primary-foreground transition-transform duration-150 active:scale-[0.97] disabled:opacity-50"
       >
-        Save new token
+        {login ? 'Save new password' : 'Save new token'}
       </button>
+    </div>
+  )
+}
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="flex items-center gap-3 py-1 text-sm">
+      <span className="w-20 shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 truncate">{value}</span>
+      <IconButton
+        label={`Copy ${label.toLowerCase()}`}
+        onClick={async () => {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1400)
+        }}
+      >
+        {copied ? <Check className="size-4 text-ok" /> : <Copy className="size-4" />}
+      </IconButton>
     </div>
   )
 }

@@ -162,7 +162,7 @@ export function Onboarding({ onFinish }: { onFinish: (addFirst: boolean) => void
                             on ? 'bg-primary text-primary-foreground ring-primary' : 'bg-card text-muted-foreground ring-border',
                           )}
                         >
-                          {d === 0 ? 'On the day' : `${d} days`}
+                          {d === 0 ? 'On the day' : `${d} day${d === 1 ? '' : 's'}`}
                         </button>
                       )
                     })}

@@ -3,10 +3,11 @@
 use crate::crypto::Vault;
 use crate::db::Db;
 use crate::model::*;
-use crate::{ai, certs, checks};
+use crate::{ai, certs, checks, lock};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
@@ -15,6 +16,45 @@ use tauri_plugin_notification::NotificationExt;
 pub struct AppState {
     pub db: Mutex<Db>,
     pub vault: Vault,
+    /// After a successful sign-in, secrets stay revealable for a few minutes.
+    pub unlocked_until: Mutex<Option<Instant>>,
+}
+
+const UNLOCK_FOR: Duration = Duration::from_secs(5 * 60);
+
+/// Prompts for Windows Hello / Windows sign-in unless recently verified or turned off in Settings.
+async fn ensure_unlocked(app: &AppHandle, reason: &str) -> Result<()> {
+    let state = app.state::<AppState>();
+    if !current_settings(&state).map(|s| s.require_sign_in).unwrap_or(true) {
+        return Ok(());
+    }
+    if state.unlocked_until.lock().unwrap().is_some_and(|t| Instant::now() < t) {
+        return Ok(());
+    }
+    let hwnd = main_hwnd(app);
+    let reason = reason.to_string();
+    let verified = tauri::async_runtime::spawn_blocking(move || lock::verify(hwnd, &reason)).await??;
+    if !verified {
+        return Err(anyhow!("Sign-in was cancelled"));
+    }
+    *state.unlocked_until.lock().unwrap() = Some(Instant::now() + UNLOCK_FOR);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn main_hwnd(app: &AppHandle) -> isize {
+    app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0)
+}
+
+#[cfg(not(windows))]
+fn main_hwnd(_app: &AppHandle) -> isize {
+    0
+}
+
+/// Which prompt this machine will show: "hello", "windows" (password or smart card) or "none".
+#[tauri::command]
+pub async fn auth_method() -> lock::Method {
+    tauri::async_runtime::spawn_blocking(lock::method).await.unwrap_or(lock::Method::None)
 }
 
 /// Commands return plain strings as errors; the UI shows them in a toast.
@@ -81,7 +121,9 @@ pub fn parse_cert(bytes: Vec<u8>, password: Option<String>) -> Res<CertInfo> {
 }
 
 #[tauri::command]
-pub fn reveal_secret(state: State<AppState>, id: String) -> Res<String> {
+pub async fn reveal_secret(app: AppHandle, id: String) -> Res<String> {
+    ensure_unlocked(&app, "Certy wants to show a saved secret").await.map_err(err)?;
+    let state = app.state::<AppState>();
     let (_, _, sealed) = state.db.lock().unwrap().secret(&id).map_err(err)?.ok_or("No secret stored")?;
     let plain = state.vault.open_sealed(&sealed).map_err(err)?;
     String::from_utf8(plain).map_err(|_| "This secret is a file; export it instead".into())
@@ -89,6 +131,7 @@ pub fn reveal_secret(state: State<AppState>, id: String) -> Res<String> {
 
 #[tauri::command]
 pub async fn export_file(app: AppHandle, id: String) -> Res<()> {
+    ensure_unlocked(&app, "Certy wants to export a saved secret").await.map_err(err)?;
     let state = app.state::<AppState>();
     let (kind, name, sealed) = state.db.lock().unwrap().secret(&id).map_err(err)?.ok_or("No file stored")?;
     let bytes = state.vault.open_sealed(&sealed).map_err(err)?;
